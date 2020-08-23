@@ -1,0 +1,171 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Juan Carlos Inclán"
+date: "22/8/2020"
+output: html_document
+---
+
+## Abstract
+The following project fits a model to classify if a person with a fit band is doing well the exercise. The data access was generously granted by groupware, link: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har 
+Thanks to groupware we could be able to make this analysis.The data comes from 6 subjects that do in 5 different ways of weight lifting, with the following algorithm it is possible to classify how well they are doing the exercise.
+
+## Data Analysis 
+
+For this project we need to load the data from the groupware link, the data is separated in a training set and a  testing set.
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+library(sqldf)
+setwd("C:/Users/juanc/OneDrive/Escritorio")
+fileURL<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileURL, destfile="./training.csv")
+training<-read.csv("./training.csv")
+fileURL2<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileURL2, destfile="./testing.csv")
+testing<-read.csv("./testing.csv")
+
+```
+After we have uploaded the data, we will proceed to make some exploratory Analysis to the data.
+
+### Exploratory Analysis
+
+We noticed that some columns had character characteristic due to the "#DIV/0!" error in the training set, with the following code we addressed that problem and eliminated the columns instead of imputing it due to the great difference of numeric outputs compared to the length of the column, the number of columns with a numeric output is 396 and the empty outputs or NA values is 19,226. We will add an example to illustrate the statement previously mentioned.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+train<-training
+res<-c()
+y<-c()  
+for(j in 1:ncol(train)){
+  x=train[[j]]
+  y[j]<-length(x[which(x=="#DIV/0!")])
+  
+}
+z<-c(1:ncol(train))
+y<-cbind(y,z)
+y<-as.data.frame(y)
+div<-which(y$y!=0)
+```
+Columns with "#DIV/0!" symbol=`r div`
+
+#### Example
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+sample<-train[[div[1]]]
+sample[sample=="#DIV/0!"]<-""
+sample<-as.numeric(sample)
+numericOutput<-length(sample[which(is.na(sample)==FALSE)])
+emptyOutput<-numericOutput<-length(sample[which(is.na(sample)==TRUE)])
+```
+The followinf results are from the kurtosis_roll_belt column in the training set: 
+ - Numeric output=`r numericOutput`
+ - Empty output or NA values=`r emptyOutput`
+
+Due to the lack of a sufficient number of numeric outputs in the columns with "#DIV/0!", we will proceed to eliminate them and later on check the NA columns in order to impute them or eliminate them.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+train<-train[-c(div)]
+```
+
+Now, that there is no "#DIV/0!" columns, we will proceed to check the NA columns.
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+for(i in 1:ncol(train)){
+  res[i]<-length(which(is.na(train[[i]])))
+  }
+r<-c(1:ncol(train))
+res<-cbind(res,r)
+res<-as.data.frame(res)
+div2<-which(res$res!=0)
+table(res$res)
+```
+The table above shows that 67 columns contain 19,216 NA values and 60 columns that do not contain any missing value. We will proceed to eliminate the 67 columns with missing values due to the lack of numeric outputs to make an impute. 
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+train<-train[-c(div2)]
+```
+
+Now, we will proceed to check NA values in the testing data set.
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+test<-testing
+les<-c()
+for(i in 1:ncol(test)){
+  les[i]<-length(which(is.na(test[[i]])))
+}
+table(les)
+```
+The table from above contains 100 columns with all of their values like NA, we will proceed to eliminate them.
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+s<-c(1:ncol(test))
+les<-cbind(les,s)
+les<-as.data.frame(les)
+div3<-which(les$les!=0)
+test<-test[-c(div3)]
+```
+
+
+### Data Spliting
+
+Now, we will present how the cross validation was made. We decided to make the data partition 60% and 40%, this partitions was applied to the cleaned training set, so it was divided 60% train of the training set and 40% test of the training set. We expect that the sample error will be about 20%.
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+## Data split
+library(caret)
+inTrain<-createDataPartition(y=train$classe, p=0.6, list=FALSE)
+trainn<-train[inTrain,]
+testt<-train[-inTrain,]
+```
+### Zero Covariates and Correlation cleaning
+
+Now, we will cutoff zero covariates data from both data set and highly correlated data from both data sets. If the variables has an absolute correlation above or equal to 0.80, those variables will be cutoff from the data before any splitting and modeling. Also, we will cut off the variables that we think that wont affect the model, like the user name variable, the index "X" variable, the date variable and the new_window.
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+library(caret)
+
+nsvTrain<-nearZeroVar(trainn)
+
+trainn<-trainn[-c(nsvTrain)]
+testt<-testt[-c(nsvTrain)]
+test<-test[-c(nsvTrain)]
+
+cut<-c(1,2,5,6)
+trainn<-trainn[-c(cut)]
+testt<-testt[-c(cut)]
+test<-test[-c(cut)]
+
+corTrain<-cor(trainn[,-55])
+M<-abs(corTrain)
+diag(M)<-0
+table(which(M>=0.7, arr.ind=TRUE))
+
+corr<-c(1,3,4,5,6,7,10,11,12,13,14,15,20,21,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,47,48,50,53)
+
+trainn<-trainn[-c(corr)]
+testt<-testt[-c(corr)]
+test<-test[-c(corr)]
+
+```
+
+
+### Model Fitting
+
+We decided that we will use a random forest to fit our model due to the lack of computational resources. We will use directly the randomForest() function due to the note in the quiz 3, that caret package had a problem.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+library(randomForest)
+set.seed(5)
+trainn$classe<-as.factor(trainn$classe)
+RFM <- randomForest(classe~.,data= trainn)
+```
+No that we fitted our model we will proceed to predict with the test sample from the training data set and check its accuracy.
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+pred <- predict(RFM, newdata = testt, type = "class")
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+confusionMatrix(factor(testt$classe), pred) 
+```
+The Accuracy is greater than expected.
+
+### Conclusion
+
+We obtained an accuracy of 96% and a in sample error approximately of 0.0372.
+
+## Applied Model to the Original Testing
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+predict(RFM,test)
+```
